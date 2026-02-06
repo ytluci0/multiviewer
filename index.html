@@ -5,18 +5,15 @@
   <title>MultiViewer</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
-  <!-- Main Style -->
   <link rel="stylesheet" href="styles.css" />
 
-  <!-- HLS Player -->
+  <!-- HLS.js for Chrome/Edge/Firefox -->
   <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
 </head>
 
 <body>
 
-  <!-- Top Bar -->
   <div class="topbar">
-
     <div class="left">
       <h1>MultiViewer</h1>
 
@@ -40,56 +37,33 @@
       <button id="gridSnapToggle">Snap: ON</button>
       <button id="clearAll" class="danger">Clear</button>
     </div>
-
   </div>
 
-  <!-- Canvas -->
   <div id="canvas"></div>
 
-  <!-- Tile Template -->
   <template id="tileTemplate">
-
     <div class="tile">
-
-      <!-- Header -->
       <div class="tileTop">
-
         <span class="tileTitle">Stream</span>
-
         <div class="tileBtns">
-
           <button class="mini" data-action="mute">Mute</button>
           <button class="mini" data-action="reload">Reload</button>
           <button class="mini danger" data-action="remove">✕</button>
-
         </div>
       </div>
 
-      <!-- Video -->
-      <video playsinline autoplay muted></video>
+      <!-- IMPORTANT: controls enabled -->
+      <video playsinline controls></video>
 
-      <!-- Controls -->
       <div class="tileControls">
-
-        <input
-          type="text"
-          class="url"
-          placeholder="Paste HLS .m3u8 here"
-        />
-
+        <input type="text" class="url" placeholder="Paste HLS .m3u8 here" />
         <button class="play">Play</button>
-
       </div>
 
-      <!-- Resize -->
       <div class="resizer"></div>
-
     </div>
-
   </template>
 
-  <!-- Main Script -->
   <script src="app.js"></script>
-
 </body>
 </html>
