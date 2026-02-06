@@ -1,5 +1,6 @@
 /* ============================
    MultiViewer app.js (API-backed short hash + legacy migration)
+   FIXED: do NOT overwrite shareName from UI during autosave
    - Short URL: .../#suhib or .../#G
    - Loads/Saves layout via API server
    - Migrates legacy long hash: #name=BASE64JSON -> saves to API -> becomes #name
@@ -52,6 +53,28 @@ function setHashShort(name) {
   history.replaceState(null, "", `#${encodeURIComponent(name)}`);
 }
 
+function setShareNameFromHashOrDefault() {
+  const raw = (location.hash || "").replace(/^#/, "").trim();
+  if (!raw) {
+    shareName = normalizeShareName(layoutName.value) || "default";
+    layoutName.value = shareName;
+    setHashShort(shareName);
+    return;
+  }
+
+  // legacy form: name=base64
+  const eq = raw.indexOf("=");
+  if (eq !== -1) {
+    const nm = raw.slice(0, eq);
+    shareName = normalizeShareName(decodeURIComponent(nm)) || "default";
+    layoutName.value = shareName;
+    return;
+  }
+
+  shareName = normalizeShareName(decodeURIComponent(raw)) || "default";
+  layoutName.value = shareName;
+}
+
 function makeId() {
   if (window.crypto && typeof window.crypto.randomUUID === "function") {
     return window.crypto.randomUUID();
@@ -76,14 +99,12 @@ function bringToFront(el) {
   el.style.zIndex = String(top);
 }
 
-// ---------- legacy decode (for old long links) ----------
+// ---------- legacy decode ----------
 function base64UrlToBase64(s) {
-  // Some old encoders use URL-safe base64
   return s.replace(/-/g, "+").replace(/_/g, "/");
 }
 function safeAtob(b64) {
   const s = base64UrlToBase64(b64);
-  // pad if needed
   const pad = s.length % 4;
   const padded = pad ? s + "=".repeat(4 - pad) : s;
   return atob(padded);
@@ -175,18 +196,15 @@ function packTilesToGrid() {
 }
 
 // ---------- Save (debounced) ----------
+// IMPORTANT FIX: autosave uses CURRENT shareName (hash), not UI input.
 function scheduleSave() {
   if (_hashSuppress) return;
 
   clearTimeout(_saveTimer);
   _saveTimer = setTimeout(async () => {
     try {
-      setShareNameFromUI();
       const payload = currentLayout();
-
       await apiSave(shareName, payload);
-
-      // Always keep URL short
       setHashShort(shareName);
     } catch (e) {
       console.error("API save failed:", e);
@@ -199,7 +217,6 @@ async function loadFromHash() {
   const raw = (location.hash || "").replace(/^#/, "").trim();
   if (!raw) return false;
 
-  // Legacy format: name=BASE64JSON
   const eqIdx = raw.indexOf("=");
   if (eqIdx !== -1) {
     const legacyName = normalizeShareName(decodeURIComponent(raw.slice(0, eqIdx)));
@@ -207,7 +224,6 @@ async function loadFromHash() {
 
     const decoded = decodeLegacyLayout(legacyBlob);
     if (decoded) {
-      // Apply immediately, then save to API, then shorten URL
       shareName = legacyName || "default";
       layoutName.value = shareName;
 
@@ -222,19 +238,15 @@ async function loadFromHash() {
       setHashShort(shareName);
       return true;
     } else {
-      // If decode fails, fallback to short name part
       shareName = legacyName || "default";
       layoutName.value = shareName;
       setHashShort(shareName);
-      // continue to API load attempt
     }
   } else {
-    // Short: #suhib
     shareName = normalizeShareName(decodeURIComponent(raw));
     layoutName.value = shareName;
   }
 
-  // Load from API
   try {
     const layout = await apiLoad(shareName);
     if (!layout) return false;
@@ -251,6 +263,7 @@ async function loadFromHash() {
 // ---------- Buttons ----------
 async function saveLayoutToAPI() {
   try {
+    // explicit save uses UI name
     setShareNameFromUI();
     const payload = currentLayout();
     await apiSave(shareName, payload);
@@ -263,6 +276,7 @@ async function saveLayoutToAPI() {
 }
 
 async function loadLayoutFromAPI() {
+  // explicit load uses UI name
   setShareNameFromUI();
   setHashShort(shareName);
   const ok = await loadFromHash();
@@ -308,7 +322,6 @@ function createTile(i, preset = null) {
     const url = urlInput.value.trim();
     if (!url) return;
 
-    // Mixed content protection (site is https)
     if (location.protocol === "https:" && url.startsWith("http://")) {
       alert(
         "Blocked: this page is HTTPS but your stream is HTTP.\nUse https:// link or enable HTTPS on your HLS server."
@@ -318,7 +331,6 @@ function createTile(i, preset = null) {
 
     stop();
 
-    // Safari native HLS
     if (video.canPlayType("application/vnd.apple.mpegurl")) {
       video.src = url;
       video.play().catch(() => {});
@@ -326,7 +338,6 @@ function createTile(i, preset = null) {
       return;
     }
 
-    // Chrome/Edge via hls.js
     if (window.Hls && window.Hls.isSupported()) {
       hls = new Hls({
         maxBufferLength: 10,
@@ -353,12 +364,10 @@ function createTile(i, preset = null) {
   }
 
   playBtn.addEventListener("click", () => {
-    setShareNameFromUI();
     play();
   });
 
   urlInput.addEventListener("input", () => {
-    setShareNameFromUI();
     scheduleSave();
   });
 
@@ -374,7 +383,6 @@ function createTile(i, preset = null) {
         scheduleSave();
       }
       if (act === "reload") {
-        setShareNameFromUI();
         play();
       }
       if (act === "remove") {
@@ -387,9 +395,7 @@ function createTile(i, preset = null) {
   });
 
   // Drag
-  let dragging = false,
-    dx = 0,
-    dy = 0;
+  let dragging = false, dx = 0, dy = 0;
 
   topbar.addEventListener("mousedown", (e) => {
     dragging = true;
@@ -401,7 +407,6 @@ function createTile(i, preset = null) {
 
     autoGridOn = false;
     updateAutoGridButton();
-    setShareNameFromUI();
 
     e.preventDefault();
   });
@@ -422,11 +427,7 @@ function createTile(i, preset = null) {
   window.addEventListener("mouseup", () => (dragging = false));
 
   // Resize
-  let resizing = false,
-    rw = 0,
-    rh = 0,
-    rx = 0,
-    ry = 0;
+  let resizing = false, rw = 0, rh = 0, rx = 0, ry = 0;
 
   resizer.addEventListener("mousedown", (e) => {
     resizing = true;
@@ -440,7 +441,6 @@ function createTile(i, preset = null) {
 
     autoGridOn = false;
     updateAutoGridButton();
-    setShareNameFromUI();
 
     e.preventDefault();
     e.stopPropagation();
@@ -507,7 +507,6 @@ function updateAutoGridButton() {
 // ---------- UI events ----------
 applyBoxes.addEventListener("click", () => {
   const n = Math.max(1, Math.min(64, parseInt(boxCount.value || "4", 10)));
-  setShareNameFromUI();
   setBoxes(n);
 });
 
@@ -528,24 +527,33 @@ gridSnapToggle.addEventListener("click", () => {
 });
 
 layoutName.addEventListener("input", () => {
+  // typing changes only the UI + hash, doesn't force autosave name
   setShareNameFromUI();
   setHashShort(shareName);
 });
 
 window.addEventListener("resize", () => packTilesToGrid());
 
+// if user changes hash manually: load that layout
+window.addEventListener("hashchange", async () => {
+  setShareNameFromHashOrDefault();
+  const ok = await loadFromHash();
+  if (!ok) {
+    // if doesn't exist, stay on that name and create blank layout
+    const n = Math.max(1, Math.min(64, parseInt(boxCount.value || "4", 10)));
+    canvas.innerHTML = "";
+    setBoxes(n);
+    setHashShort(shareName);
+    scheduleSave();
+  }
+});
+
 // ---------- INIT ----------
 addAutoGridButton();
 updateAutoGridButton();
 
 (async () => {
-  // If user opens without hash, default to #default
-  const raw = (location.hash || "").replace(/^#/, "").trim();
-  if (!raw) {
-    shareName = normalizeShareName(layoutName.value) || "default";
-    layoutName.value = shareName;
-    setHashShort(shareName);
-  }
+  setShareNameFromHashOrDefault();
 
   const loaded = await loadFromHash();
 
