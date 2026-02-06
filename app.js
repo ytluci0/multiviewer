@@ -12,10 +12,10 @@ const gridSnapToggle = document.getElementById("gridSnapToggle");
 let snapOn = true;
 const SNAP = 20;
 
-// Auto grid toggle (packs tiles to fill right side)
+// Auto grid toggle
 let autoGridOn = true;
 
-// Fixed grid sizing (broadcast-style)
+// Fixed grid sizing
 const GRID = {
   PAD: 16,
   GAP_X: 16,
@@ -49,7 +49,7 @@ function bringToFront(el) {
   el.style.zIndex = String(top);
 }
 
-// ---- GRID PACKER (perfect rows/cols) ----
+// ---- GRID PACKER ----
 function packTilesToGrid() {
   if (!autoGridOn) return;
 
@@ -72,12 +72,10 @@ function packTilesToGrid() {
     const col = i % cols;
     const row = Math.floor(i / cols);
 
-    // enforce fixed size for perfect grid
     t.style.width = TILE_W + "px";
     t.style.height = TILE_H + "px";
-
     t.style.left = (PAD + col * stepX) + "px";
-    t.style.top  = (PAD + row * (TILE_H + GAP_Y)) + "px";
+    t.style.top = (PAD + row * (TILE_H + GAP_Y)) + "px";
   });
 }
 
@@ -86,14 +84,10 @@ function createTile(i, preset = null) {
   const node = tpl.content.firstElementChild.cloneNode(true);
   node.dataset.id = preset?.id ?? makeId();
 
-  // Fixed size by default
   node.style.width = (preset?.w ?? GRID.TILE_W) + "px";
   node.style.height = (preset?.h ?? GRID.TILE_H) + "px";
-
-  // Z
   node.style.zIndex = preset?.z ?? String(1 + i);
 
-  // Position: if preset exists use it, else temporary position (packer will fix anyway)
   node.style.left = (preset?.x ?? GRID.PAD) + "px";
   node.style.top = (preset?.y ?? GRID.PAD) + "px";
 
@@ -115,7 +109,9 @@ function createTile(i, preset = null) {
       hls.destroy();
       hls = null;
     }
-    video.src = "";
+    video.pause();
+    video.removeAttribute("src");
+    video.load();
   }
 
   function play() {
@@ -187,15 +183,14 @@ function createTile(i, preset = null) {
     dx = e.clientX - rect.left;
     dy = e.clientY - rect.top;
 
+    autoGridOn = false;
+    updateAutoGridButton();
+
     e.preventDefault();
   });
 
   window.addEventListener("mousemove", e => {
     if (!dragging) return;
-
-    // user manual mode
-    autoGridOn = false;
-    updateAutoGridButton();
 
     const c = canvas.getBoundingClientRect();
     const x = snap(e.clientX - c.left - dx);
@@ -207,7 +202,7 @@ function createTile(i, preset = null) {
 
   window.addEventListener("mouseup", () => (dragging = false));
 
-  // Resize (only in manual mode)
+  // Resize
   let resizing = false, rw = 0, rh = 0, rx = 0, ry = 0;
 
   resizer.addEventListener("mousedown", e => {
@@ -220,16 +215,15 @@ function createTile(i, preset = null) {
     rx = e.clientX;
     ry = e.clientY;
 
+    autoGridOn = false;
+    updateAutoGridButton();
+
     e.preventDefault();
     e.stopPropagation();
   });
 
   window.addEventListener("mousemove", e => {
     if (!resizing) return;
-
-    // user manual mode
-    autoGridOn = false;
-    updateAutoGridButton();
 
     const dw = e.clientX - rx;
     const dh = e.clientY - ry;
@@ -247,7 +241,7 @@ function createTile(i, preset = null) {
   return node;
 }
 
-// ---- LAYOUT SAVE/LOAD (LocalStorage for GitHub Pages) ----
+// ---- LAYOUT SAVE/LOAD (LocalStorage) ----
 function currentLayout() {
   const tiles = [...canvas.querySelectorAll(".tile")].map(t => ({
     id: t.dataset.id,
@@ -264,8 +258,7 @@ function currentLayout() {
 
 async function saveLayout() {
   const name = (layoutName.value.trim() || "default").toLowerCase();
-  const payload = currentLayout();
-  localStorage.setItem("multiviewer_layout_" + name, JSON.stringify(payload));
+  localStorage.setItem("multiviewer_layout_" + name, JSON.stringify(currentLayout()));
   alert("Saved layout: " + name);
 }
 
@@ -321,13 +314,11 @@ gridSnapToggle.addEventListener("click", () => {
   gridSnapToggle.textContent = `Snap: ${snapOn ? "ON" : "OFF"}`;
 });
 
-// ---- Add Auto Grid toggle button dynamically ----
+// ---- AutoGrid toggle button ----
 function addAutoGridButton() {
   const parent = gridSnapToggle.parentElement;
-
   const btn = document.createElement("button");
   btn.id = "autoGridToggle";
-  btn.className = "ghost";
   btn.textContent = `AutoGrid: ${autoGridOn ? "ON" : "OFF"}`;
 
   btn.addEventListener("click", () => {
@@ -344,10 +335,7 @@ function updateAutoGridButton() {
   if (b) b.textContent = `AutoGrid: ${autoGridOn ? "ON" : "OFF"}`;
 }
 
-// Re-pack on resize if AutoGrid ON
-window.addEventListener("resize", () => {
-  packTilesToGrid();
-});
+window.addEventListener("resize", () => packTilesToGrid());
 
 // ---- INIT ----
 addAutoGridButton();
