@@ -1,11 +1,13 @@
 /* ============================
-   MultiViewer app.js (API-backed short hash)
-   - GitHub Pages URL: .../#suhib or .../#G
-   - Saves/loads layout via API server
+   MultiViewer app.js (API-backed short hash + legacy migration)
+   - Short URL: .../#suhib or .../#G
+   - Loads/Saves layout via API server
+   - Migrates legacy long hash: #name=BASE64JSON -> saves to API -> becomes #name
 ============================ */
 
 const API_SERVER = "http://10.220.106.48:5000";
 
+// DOM
 const canvas = document.getElementById("canvas");
 const tpl = document.getElementById("tileTemplate");
 
@@ -17,15 +19,13 @@ const saveLayoutBtn = document.getElementById("saveLayout");
 const clearAllBtn = document.getElementById("clearAll");
 const gridSnapToggle = document.getElementById("gridSnapToggle");
 
+// State
 let snapOn = true;
 const SNAP = 20;
 
 let autoGridOn = true;
-
-// Default share name if no hash
 let shareName = "default";
 
-// debounce timers
 let _saveTimer = null;
 let _hashSuppress = false;
 
@@ -36,6 +36,21 @@ const GRID = {
   TILE_W: 420,
   TILE_H: 240,
 };
+
+// ---------- utils ----------
+function normalizeShareName(s) {
+  const n = (s || "").trim();
+  if (!n) return "default";
+  return n.replace(/\s+/g, "-");
+}
+
+function setShareNameFromUI() {
+  shareName = normalizeShareName(layoutName.value);
+}
+
+function setHashShort(name) {
+  history.replaceState(null, "", `#${encodeURIComponent(name)}`);
+}
 
 function makeId() {
   if (window.crypto && typeof window.crypto.randomUUID === "function") {
@@ -61,33 +76,74 @@ function bringToFront(el) {
   el.style.zIndex = String(top);
 }
 
-function normalizeShareName(s) {
-  const n = (s || "").trim();
-  if (!n) return "default";
-  // keep it simple for URLs/users
-  return n.replace(/\s+/g, "-");
+// ---------- legacy decode (for old long links) ----------
+function base64UrlToBase64(s) {
+  // Some old encoders use URL-safe base64
+  return s.replace(/-/g, "+").replace(/_/g, "/");
 }
-
-function setShareNameFromUI() {
-  const n = normalizeShareName(layoutName.value);
-  shareName = n;
+function safeAtob(b64) {
+  const s = base64UrlToBase64(b64);
+  // pad if needed
+  const pad = s.length % 4;
+  const padded = pad ? s + "=".repeat(4 - pad) : s;
+  return atob(padded);
 }
-
-function setShareNameFromHash() {
-  const h = (location.hash || "").replace(/^#/, "").trim();
-  if (h) {
-    shareName = normalizeShareName(decodeURIComponent(h));
-    layoutName.value = shareName;
-  } else {
-    setShareNameFromUI();
-    // keep URL in sync
-    history.replaceState(null, "", `#${encodeURIComponent(shareName)}`);
+function decodeLegacyLayout(base64Str) {
+  try {
+    const json = safeAtob(base64Str);
+    return JSON.parse(json);
+  } catch (e) {
+    console.warn("Legacy decode failed:", e);
+    return null;
   }
 }
 
-/* ============================
-   AutoGrid packer
-============================ */
+// ---------- layout helpers ----------
+function currentLayout() {
+  const tiles = [...canvas.querySelectorAll(".tile")].map((t) => ({
+    id: t.dataset.id,
+    name: t.querySelector(".tileTitle").textContent,
+    url: t.querySelector(".url").value.trim(),
+    x: parseInt(t.style.left, 10) || 0,
+    y: parseInt(t.style.top, 10) || 0,
+    w: parseInt(t.style.width, 10) || GRID.TILE_W,
+    h: parseInt(t.style.height, 10) || GRID.TILE_H,
+    z: parseInt(t.style.zIndex || "1", 10),
+  }));
+  return { tiles, autoGridOn };
+}
+
+function applyLayoutObject(layout) {
+  autoGridOn = layout?.autoGridOn ?? true;
+
+  _hashSuppress = true;
+  canvas.innerHTML = "";
+
+  (layout?.tiles || []).forEach((t, i) => createTile(i, t));
+
+  packTilesToGrid();
+  updateAutoGridButton();
+
+  _hashSuppress = false;
+}
+
+// ---------- API ----------
+async function apiSave(name, payload) {
+  await fetch(`${API_SERVER}/layout/${encodeURIComponent(name)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+async function apiLoad(name) {
+  const res = await fetch(`${API_SERVER}/layout/${encodeURIComponent(name)}`);
+  if (!res.ok) return null;
+  const data = await res.json();
+  return data?.layout ?? null;
+}
+
+// ---------- AutoGrid packer ----------
 function packTilesToGrid() {
   if (!autoGridOn) return;
 
@@ -118,80 +174,73 @@ function packTilesToGrid() {
   scheduleSave();
 }
 
-/* ============================
-   Layout helpers
-============================ */
-function currentLayout() {
-  const tiles = [...canvas.querySelectorAll(".tile")].map((t) => ({
-    id: t.dataset.id,
-    name: t.querySelector(".tileTitle").textContent,
-    url: t.querySelector(".url").value.trim(),
-    x: parseInt(t.style.left, 10) || 0,
-    y: parseInt(t.style.top, 10) || 0,
-    w: parseInt(t.style.width, 10) || GRID.TILE_W,
-    h: parseInt(t.style.height, 10) || GRID.TILE_H,
-    z: parseInt(t.style.zIndex || "1", 10),
-  }));
-  return { tiles, autoGridOn };
-}
-
-/* ============================
-   API Save/Load
-============================ */
-
+// ---------- Save (debounced) ----------
 function scheduleSave() {
   if (_hashSuppress) return;
 
   clearTimeout(_saveTimer);
   _saveTimer = setTimeout(async () => {
     try {
-      setShareNameFromUI(); // keep shareName consistent
+      setShareNameFromUI();
       const payload = currentLayout();
 
-      await fetch(`${API_SERVER}/layout/${encodeURIComponent(shareName)}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
+      await apiSave(shareName, payload);
 
-      // keep URL short and stable
-      history.replaceState(null, "", `#${encodeURIComponent(shareName)}`);
+      // Always keep URL short
+      setHashShort(shareName);
     } catch (e) {
       console.error("API save failed:", e);
     }
   }, 500);
 }
 
-async function loadFromHashIfPresent() {
-  const name = (location.hash || "").replace(/^#/, "").trim();
-  if (!name) return false;
+// ---------- Load from hash (short) OR migrate legacy (long) ----------
+async function loadFromHash() {
+  const raw = (location.hash || "").replace(/^#/, "").trim();
+  if (!raw) return false;
 
-  shareName = normalizeShareName(decodeURIComponent(name));
-  layoutName.value = shareName;
+  // Legacy format: name=BASE64JSON
+  const eqIdx = raw.indexOf("=");
+  if (eqIdx !== -1) {
+    const legacyName = normalizeShareName(decodeURIComponent(raw.slice(0, eqIdx)));
+    const legacyBlob = raw.slice(eqIdx + 1);
 
+    const decoded = decodeLegacyLayout(legacyBlob);
+    if (decoded) {
+      // Apply immediately, then save to API, then shorten URL
+      shareName = legacyName || "default";
+      layoutName.value = shareName;
+
+      applyLayoutObject(decoded);
+
+      try {
+        await apiSave(shareName, decoded);
+      } catch (e) {
+        console.error("Legacy migration save failed:", e);
+      }
+
+      setHashShort(shareName);
+      return true;
+    } else {
+      // If decode fails, fallback to short name part
+      shareName = legacyName || "default";
+      layoutName.value = shareName;
+      setHashShort(shareName);
+      // continue to API load attempt
+    }
+  } else {
+    // Short: #suhib
+    shareName = normalizeShareName(decodeURIComponent(raw));
+    layoutName.value = shareName;
+  }
+
+  // Load from API
   try {
-    const res = await fetch(
-      `${API_SERVER}/layout/${encodeURIComponent(shareName)}`
-    );
-    if (!res.ok) return false;
+    const layout = await apiLoad(shareName);
+    if (!layout) return false;
 
-    const data = await res.json();
-    const layout = data.layout;
-
-    autoGridOn = layout.autoGridOn ?? true;
-
-    _hashSuppress = true;
-    canvas.innerHTML = "";
-
-    (layout.tiles || []).forEach((t, i) => createTile(i, t));
-
-    packTilesToGrid();
-    updateAutoGridButton();
-
-    _hashSuppress = false;
-
-    // keep URL short
-    history.replaceState(null, "", `#${encodeURIComponent(shareName)}`);
+    applyLayoutObject(layout);
+    setHashShort(shareName);
     return true;
   } catch (e) {
     console.error("API load failed:", e);
@@ -199,22 +248,13 @@ async function loadFromHashIfPresent() {
   }
 }
 
-/* ============================
-   UI buttons: Save/Load using API
-============================ */
-
+// ---------- Buttons ----------
 async function saveLayoutToAPI() {
   try {
     setShareNameFromUI();
     const payload = currentLayout();
-
-    await fetch(`${API_SERVER}/layout/${encodeURIComponent(shareName)}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-
-    history.replaceState(null, "", `#${encodeURIComponent(shareName)}`);
+    await apiSave(shareName, payload);
+    setHashShort(shareName);
     alert(`Saved to server as: ${shareName}`);
   } catch (e) {
     alert("Save failed. Check console.");
@@ -224,18 +264,12 @@ async function saveLayoutToAPI() {
 
 async function loadLayoutFromAPI() {
   setShareNameFromUI();
-  // set hash then load
-  history.replaceState(null, "", `#${encodeURIComponent(shareName)}`);
-  const ok = await loadFromHashIfPresent();
-  if (!ok) {
-    alert(`No layout found on server for: ${shareName}`);
-  }
+  setHashShort(shareName);
+  const ok = await loadFromHash();
+  if (!ok) alert(`No layout found on server for: ${shareName}`);
 }
 
-/* ============================
-   Tile creation
-============================ */
-
+// ---------- Tile creation ----------
 function createTile(i, preset = null) {
   const node = tpl.content.firstElementChild.cloneNode(true);
   node.dataset.id = preset?.id ?? makeId();
@@ -274,7 +308,7 @@ function createTile(i, preset = null) {
     const url = urlInput.value.trim();
     if (!url) return;
 
-    // prevent mixed content when site is https
+    // Mixed content protection (site is https)
     if (location.protocol === "https:" && url.startsWith("http://")) {
       alert(
         "Blocked: this page is HTTPS but your stream is HTTP.\nUse https:// link or enable HTTPS on your HLS server."
@@ -323,7 +357,6 @@ function createTile(i, preset = null) {
     play();
   });
 
-  // update save when typing url
   urlInput.addEventListener("input", () => {
     setShareNameFromUI();
     scheduleSave();
@@ -434,10 +467,7 @@ function createTile(i, preset = null) {
   return node;
 }
 
-/* ============================
-   Boxes logic
-============================ */
-
+// ---------- Boxes logic ----------
 function setBoxes(n) {
   const existing = canvas.querySelectorAll(".tile").length;
 
@@ -452,9 +482,7 @@ function setBoxes(n) {
   scheduleSave();
 }
 
-/* ============================
-   AutoGrid toggle
-============================ */
+// ---------- AutoGrid toggle ----------
 function addAutoGridButton() {
   const parent = gridSnapToggle.parentElement;
   const btn = document.createElement("button");
@@ -476,10 +504,7 @@ function updateAutoGridButton() {
   if (b) b.textContent = `AutoGrid: ${autoGridOn ? "ON" : "OFF"}`;
 }
 
-/* ============================
-   UI events
-============================ */
-
+// ---------- UI events ----------
 applyBoxes.addEventListener("click", () => {
   const n = Math.max(1, Math.min(64, parseInt(boxCount.value || "4", 10)));
   setShareNameFromUI();
@@ -504,32 +529,30 @@ gridSnapToggle.addEventListener("click", () => {
 
 layoutName.addEventListener("input", () => {
   setShareNameFromUI();
-  // update hash but don't spam-save just from typing name
-  history.replaceState(null, "", `#${encodeURIComponent(shareName)}`);
+  setHashShort(shareName);
 });
 
 window.addEventListener("resize", () => packTilesToGrid());
 
-/* ============================
-   INIT
-============================ */
-
+// ---------- INIT ----------
 addAutoGridButton();
 updateAutoGridButton();
 
-// 1) prefer hash name
-setShareNameFromHash();
-
-// 2) try load from API if hash exists
 (async () => {
-  const loaded = await loadFromHashIfPresent();
+  // If user opens without hash, default to #default
+  const raw = (location.hash || "").replace(/^#/, "").trim();
+  if (!raw) {
+    shareName = normalizeShareName(layoutName.value) || "default";
+    layoutName.value = shareName;
+    setHashShort(shareName);
+  }
+
+  const loaded = await loadFromHash();
 
   if (!loaded) {
-    // default initial tiles
     const n = Math.max(1, Math.min(64, parseInt(boxCount.value || "4", 10)));
     setBoxes(n);
-    // keep hash short
-    history.replaceState(null, "", `#${encodeURIComponent(shareName)}`);
+    setHashShort(shareName);
     scheduleSave();
   }
 })();
