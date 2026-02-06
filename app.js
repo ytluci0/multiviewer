@@ -15,6 +15,15 @@ const SNAP = 20;
 // Auto grid toggle (packs tiles to fill right side)
 let autoGridOn = true;
 
+// Fixed grid sizing (broadcast-style)
+const GRID = {
+  PAD: 16,
+  GAP_X: 16,
+  GAP_Y: 16,
+  TILE_W: 420,
+  TILE_H: 240
+};
+
 // ---- SAFE ID GENERATOR ----
 function makeId() {
   if (window.crypto && typeof window.crypto.randomUUID === "function") {
@@ -40,7 +49,7 @@ function bringToFront(el) {
   el.style.zIndex = String(top);
 }
 
-// ---- GRID PACKER (fills to the right) ----
+// ---- GRID PACKER (perfect rows/cols) ----
 function packTilesToGrid() {
   if (!autoGridOn) return;
 
@@ -49,23 +58,26 @@ function packTilesToGrid() {
 
   const c = canvas.getBoundingClientRect();
 
-  const PAD = 20;
-  const GAP_X = 20;
-  const GAP_Y = 20;
-
-  // Use first tile size as base grid unit (works even if resized; still packs nicely)
-  const baseW = parseInt(tiles[0].style.width || "420", 10);
-  const baseH = parseInt(tiles[0].style.height || "260", 10);
+  const PAD = GRID.PAD;
+  const GAP_X = GRID.GAP_X;
+  const GAP_Y = GRID.GAP_Y;
+  const TILE_W = GRID.TILE_W;
+  const TILE_H = GRID.TILE_H;
 
   const usableW = Math.max(1, c.width - PAD * 2);
-  const stepX = baseW + GAP_X;
+  const stepX = TILE_W + GAP_X;
   const cols = Math.max(1, Math.floor((usableW + GAP_X) / stepX));
 
   tiles.forEach((t, i) => {
     const col = i % cols;
     const row = Math.floor(i / cols);
+
+    // enforce fixed size for perfect grid
+    t.style.width = TILE_W + "px";
+    t.style.height = TILE_H + "px";
+
     t.style.left = (PAD + col * stepX) + "px";
-    t.style.top  = (PAD + row * (baseH + GAP_Y)) + "px";
+    t.style.top  = (PAD + row * (TILE_H + GAP_Y)) + "px";
   });
 }
 
@@ -74,31 +86,16 @@ function createTile(i, preset = null) {
   const node = tpl.content.firstElementChild.cloneNode(true);
   node.dataset.id = preset?.id ?? makeId();
 
-  // Default size
-  node.style.width = (preset?.w ?? 420) + "px";
-  node.style.height = (preset?.h ?? 260) + "px";
+  // Fixed size by default
+  node.style.width = (preset?.w ?? GRID.TILE_W) + "px";
+  node.style.height = (preset?.h ?? GRID.TILE_H) + "px";
 
-  // Default Z
+  // Z
   node.style.zIndex = preset?.z ?? String(1 + i);
 
-  // Default position: dynamic columns based on canvas width
-  const PAD = 20;
-  const GAP_X = 20;
-  const GAP_Y = 20;
-
-  const tileW = preset?.w ?? 420;
-  const tileH = preset?.h ?? 260;
-
-  const c = canvas.getBoundingClientRect();
-  const usableW = Math.max(1, c.width - PAD * 2);
-  const stepX = tileW + GAP_X;
-  const cols = Math.max(1, Math.floor((usableW + GAP_X) / stepX));
-
-  const col = i % cols;
-  const row = Math.floor(i / cols);
-
-  node.style.left = (preset?.x ?? (PAD + col * stepX)) + "px";
-  node.style.top  = (preset?.y ?? (PAD + row * (tileH + GAP_Y))) + "px";
+  // Position: if preset exists use it, else temporary position (packer will fix anyway)
+  node.style.left = (preset?.x ?? GRID.PAD) + "px";
+  node.style.top = (preset?.y ?? GRID.PAD) + "px";
 
   const title = node.querySelector(".tileTitle");
   title.textContent = preset?.name ?? `Stream ${i + 1}`;
@@ -180,9 +177,7 @@ function createTile(i, preset = null) {
   });
 
   // Drag
-  let dragging = false,
-    dx = 0,
-    dy = 0;
+  let dragging = false, dx = 0, dy = 0;
 
   topbar.addEventListener("mousedown", e => {
     dragging = true;
@@ -198,7 +193,9 @@ function createTile(i, preset = null) {
   window.addEventListener("mousemove", e => {
     if (!dragging) return;
 
-    autoGridOn = false; // user started manual layout
+    // user manual mode
+    autoGridOn = false;
+    updateAutoGridButton();
 
     const c = canvas.getBoundingClientRect();
     const x = snap(e.clientX - c.left - dx);
@@ -210,12 +207,8 @@ function createTile(i, preset = null) {
 
   window.addEventListener("mouseup", () => (dragging = false));
 
-  // Resize
-  let resizing = false,
-    rw = 0,
-    rh = 0,
-    rx = 0,
-    ry = 0;
+  // Resize (only in manual mode)
+  let resizing = false, rw = 0, rh = 0, rx = 0, ry = 0;
 
   resizer.addEventListener("mousedown", e => {
     resizing = true;
@@ -234,7 +227,9 @@ function createTile(i, preset = null) {
   window.addEventListener("mousemove", e => {
     if (!resizing) return;
 
-    autoGridOn = false; // user started manual layout
+    // user manual mode
+    autoGridOn = false;
+    updateAutoGridButton();
 
     const dw = e.clientX - rx;
     const dh = e.clientY - ry;
@@ -252,7 +247,7 @@ function createTile(i, preset = null) {
   return node;
 }
 
-// ---- LAYOUT SAVE/LOAD ----
+// ---- LAYOUT SAVE/LOAD (LocalStorage for GitHub Pages) ----
 function currentLayout() {
   const tiles = [...canvas.querySelectorAll(".tile")].map(t => ({
     id: t.dataset.id,
@@ -268,29 +263,30 @@ function currentLayout() {
 }
 
 async function saveLayout() {
-  const name = layoutName.value.trim() || "default";
-  await fetch(`/api/layout/${encodeURIComponent(name)}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(currentLayout())
-  });
+  const name = (layoutName.value.trim() || "default").toLowerCase();
+  const payload = currentLayout();
+  localStorage.setItem("multiviewer_layout_" + name, JSON.stringify(payload));
+  alert("Saved layout: " + name);
 }
 
 async function loadLayout() {
-  const name = layoutName.value.trim() || "default";
-
-  const r = await fetch(`/api/layout/${encodeURIComponent(name)}`);
-  const data = await r.json();
+  const name = (layoutName.value.trim() || "default").toLowerCase();
+  const raw = localStorage.getItem("multiviewer_layout_" + name);
 
   canvas.innerHTML = "";
 
+  if (!raw) {
+    packTilesToGrid();
+    updateAutoGridButton();
+    return;
+  }
+
+  const data = JSON.parse(raw);
   autoGridOn = data.autoGridOn ?? true;
 
   (data.tiles || []).forEach((tile, i) => createTile(i, tile));
 
-  // Pack only if autoGridOn
   packTilesToGrid();
-
   updateAutoGridButton();
 }
 
@@ -317,9 +313,7 @@ loadLayoutBtn.addEventListener("click", loadLayout);
 saveLayoutBtn.addEventListener("click", saveLayout);
 
 clearAllBtn.addEventListener("click", () => {
-  if (confirm("Clear all tiles?")) {
-    canvas.innerHTML = "";
-  }
+  if (confirm("Clear all tiles?")) canvas.innerHTML = "";
 });
 
 gridSnapToggle.addEventListener("click", () => {
@@ -329,8 +323,8 @@ gridSnapToggle.addEventListener("click", () => {
 
 // ---- Add Auto Grid toggle button dynamically ----
 function addAutoGridButton() {
-  // put it next to Snap button
   const parent = gridSnapToggle.parentElement;
+
   const btn = document.createElement("button");
   btn.id = "autoGridToggle";
   btn.className = "ghost";
@@ -350,7 +344,7 @@ function updateAutoGridButton() {
   if (b) b.textContent = `AutoGrid: ${autoGridOn ? "ON" : "OFF"}`;
 }
 
-// Re-pack on resize if autoGridOn
+// Re-pack on resize if AutoGrid ON
 window.addEventListener("resize", () => {
   packTilesToGrid();
 });
