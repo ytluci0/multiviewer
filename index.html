@@ -1,50 +1,41 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>MultiViewer</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-
-  <link rel="stylesheet" href="styles.css" />
-
-  <!-- HLS.js for Chrome/Edge/Firefox -->
-  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+  <link rel="stylesheet" href="./styles.css" />
 </head>
-
 <body>
 
   <div class="topbar">
-    <div class="left">
-      <h1>MultiViewer</h1>
+    <div class="brand">MultiViewer</div>
 
-      <label>
-        Boxes
-        <input id="boxCount" type="number" min="1" max="64" value="4" />
-      </label>
+    <label class="lbl">
+      Boxes
+      <input id="boxCount" type="number" min="1" max="64" value="4" />
+    </label>
+    <button id="applyBoxes">Apply</button>
 
-      <button id="applyBoxes">Apply</button>
+    <label class="lbl">
+      Layout
+      <input id="layoutName" type="text" value="default" />
+    </label>
+    <button id="loadLayout">Load</button>
+    <button id="saveLayout">Save</button>
 
-      <label>
-        Layout
-        <input id="layoutName" type="text" value="default" />
-      </label>
-
-      <button id="loadLayout">Load</button>
-      <button id="saveLayout">Save</button>
-    </div>
-
-    <div class="right">
-      <button id="gridSnapToggle">Snap: ON</button>
-      <button id="clearAll" class="danger">Clear</button>
-    </div>
+    <button id="gridSnapToggle">Snap: ON</button>
+    <button id="clearAll" class="danger">Clear</button>
   </div>
 
-  <div id="canvas"></div>
+  <div id="canvas" class="canvas"></div>
 
+  <!-- Tile Template -->
   <template id="tileTemplate">
     <div class="tile">
       <div class="tileTop">
-        <span class="tileTitle">Stream</span>
+        <div class="tileTitle">Stream</div>
+
         <div class="tileBtns">
           <button class="mini" data-action="mute">Mute</button>
           <button class="mini" data-action="reload">Reload</button>
@@ -52,11 +43,12 @@
         </div>
       </div>
 
-      <!-- IMPORTANT: controls enabled -->
-      <video playsinline controls></video>
+      <div class="tileBody">
+        <video playsinline controls></video>
+      </div>
 
-      <div class="tileControls">
-        <input type="text" class="url" placeholder="Paste HLS .m3u8 here" />
+      <div class="tileBottom">
+        <input class="url" type="text" placeholder="Paste HLS .m3u8 here" />
         <button class="play">Play</button>
       </div>
 
@@ -64,6 +56,9 @@
     </div>
   </template>
 
-  <script src="app.js"></script>
+  <!-- HLS -->
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+  <!-- App -->
+  <script src="./app.js"></script>
 </body>
 </html>
