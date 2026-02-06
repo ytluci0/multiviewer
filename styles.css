@@ -125,12 +125,13 @@ button.mini {
   font-size: 12px;
 }
 
+/* Video with native controls */
 video {
   width: 100%;
   height: calc(100% - 86px);
-  object-fit: contain;
   background: #000;
   display: block;
+  object-fit: contain;
 }
 
 /* Bottom controls */
