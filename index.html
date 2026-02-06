@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>MultiViewer</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="left">
+      <div class="brand">MultiViewer</div>
+      <div class="controls">
+        <label>Boxes</label>
+        <input id="boxCount" type="number" min="1" max="64" value="4" />
+        <button id="applyBoxes">Apply</button>
+
+        <label>Layout</label>
+        <input id="layoutName" type="text" value="default" />
+        <button id="loadLayout">Load</button>
+        <button id="saveLayout">Save</button>
+      </div>
+    </div>
+    <div class="right">
+      <button id="gridSnapToggle" class="ghost">Snap: ON</button>
+      <button id="clearAll" class="danger">Clear</button>
+    </div>
+  </header>
+
+  <main>
+    <div id="canvas" class="canvas"></div>
+  </main>
+
+  <template id="tileTemplate">
+    <div class="tile">
+      <div class="tileTop">
+        <span class="tileTitle">Stream</span>
+        <div class="tileBtns">
+          <button class="mini" data-action="mute">Mute</button>
+          <button class="mini" data-action="reload">Reload</button>
+          <button class="mini danger" data-action="remove">X</button>
+        </div>
+      </div>
+
+      <div class="tileBody">
+        <video class="vid" playsinline autoplay muted controls></video>
+      </div>
+
+      <div class="tileBottom">
+        <input class="url" type="text" placeholder="Paste HLS .m3u8 (or WebRTC URL from gateway)" />
+        <button class="play">Play</button>
+      </div>
+
+      <div class="resizer"></div>
+    </div>
+  </template>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
